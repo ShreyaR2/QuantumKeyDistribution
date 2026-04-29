@@ -180,7 +180,20 @@ tr.error td { color: var(--eve); }
         </div>
         <div class="toggle-row">
           <div class="toggle-label">Eve (eavesdropper)</div>
-          <label class="toggle"><input type="checkbox" id="eve-toggle"><span class="toggle-slider"></span></label>
+          <label class="toggle"><input type="checkbox" id="eve-toggle" onchange="toggleEveControls()"><span class="toggle-slider"></span></label>
+        </div>
+        <div id="eve-controls" style="display:none;margin-bottom:8px">
+          <div class="control-row">
+            <div class="control-label">Eve intercepts <span id="frac-label" style="color:var(--eve)">100%</span></div>
+            <input type="range" id="frac-range" min="0" max="100" value="100" step="5"
+              oninput="document.getElementById('frac-label').textContent=this.value+'%';updateEveHint()">
+            <div id="eve-hint" style="font-size:10px;color:var(--text3);margin-top:3px">Expected QBER from Eve: ~25.0%</div>
+          </div>
+        </div>
+        <div class="control-row" style="margin-bottom:12px">
+          <div class="control-label">Channel noise <span id="noise-label" style="color:var(--warn)">2%</span></div>
+          <input type="range" id="noise-range" min="0" max="15" value="2" step="1"
+            oninput="document.getElementById('noise-label').textContent=this.value+'%'">
         </div>
         <button class="btn btn-primary" onclick="runSim()">▶ RUN SIMULATION</button>
         <button class="btn btn-secondary" onclick="runSweep()">≋ RUN 200-TRIAL SWEEP</button>
@@ -223,6 +236,20 @@ tr.error td { color: var(--eve); }
 <script>
 let qberChart = null, basisChart = null, sweepChart = null;
 
+function toggleEveControls(){
+  const on = document.getElementById('eve-toggle').checked;
+  document.getElementById('eve-controls').style.display = on ? 'block' : 'none';
+}
+
+function updateEveHint(){
+  const frac  = parseInt(document.getElementById('frac-range').value);
+  const noise = parseInt(document.getElementById('noise-range').value);
+  const eve   = (0.25 * frac).toFixed(1);
+  const total = Math.min(99, (0.25*frac + noise)).toFixed(1);
+  document.getElementById('eve-hint').textContent =
+    `Eve QBER: ~${eve}% + ${noise}% noise ≈ ${total}% total`;
+}
+
 function setN(v){
   v = parseInt(v);
   document.getElementById('n-range').value = v;
@@ -251,7 +278,11 @@ async function runSim(){
     const res = await fetch('/api/run', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({n_bits: n, eve_active: eve})
+      body: JSON.stringify({
+      n_bits: n, eve_active: eve,
+      intercept_fraction: parseInt(document.getElementById('frac-range').value)/100,
+      noise_rate: parseInt(document.getElementById('noise-range').value)/100,
+    })
     });
     data = await res.json();
   } catch(e) {
@@ -331,9 +362,14 @@ async function runSim(){
         <div class="card-sub">threshold: 11%</div>
       </div>
       <div class="card">
+        <div class="card-label">RAW KEY</div>
+        <div class="card-value">${s.raw_key_length||s.key_length}</div>
+        <div class="card-sub">pre-amplification</div>
+      </div>
+      <div class="card">
         <div class="card-label">FINAL KEY</div>
         <div class="card-value ${secure?'ok':'warn'}">${s.key_length}</div>
-        <div class="card-sub">${secure ? 'bits extracted' : 'ABORTED'}</div>
+        <div class="card-sub">${secure ? 'SHA-256 amplified' : 'ABORTED'}</div>
       </div>
     </div>
 
@@ -353,6 +389,10 @@ async function runSim(){
             <div class="qber-marker"></div>
           </div>
           <div class="qber-labels"><span>0%</span><span>↑ 11% limit</span><span>40%+</span></div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">
+            Noise floor: ${s.noise_rate}%
+            ${s.eve_present ? ` · Eve: ${s.intercept_fraction}% intercept · Expected ~${s.expected_eve_qber}%` : ''}
+          </div>
         </div>
       </div>
     </div>
@@ -412,8 +452,49 @@ async function runSim(){
       </div>
     </div>
 
+    <!-- Privacy amplification -->
+    ${secure && (s.raw_key_length||0) > 0 ? `
+    <div class="panel" id="pa-panel-inline">
+      <div class="panel-header">
+        <span class="panel-title">Privacy Amplification</span>
+        <span style="font-size:10px;color:var(--text3);margin-left:8px">SHA-256 · ${s.raw_key_length} bits → ${s.key_length} bits</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin-bottom:12px">
+          <div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:5px;font-family:var(--mono)">RAW SIFTED KEY</div>
+            <div class="key-display" id="raw-key-disp" style="font-size:11px;opacity:.6"></div>
+            <div style="font-size:10px;color:var(--text3);margin-top:3px">${s.raw_key_length} bits</div>
+          </div>
+          <div style="color:var(--alice);font-family:var(--mono);font-size:18px;text-align:center">SHA<br>256<br>→</div>
+          <div>
+            <div style="font-size:10px;color:var(--bob);margin-bottom:5px;font-family:var(--mono)">AMPLIFIED KEY</div>
+            <div class="key-display" id="pa-key-disp" style="font-size:11px"></div>
+            <div style="font-size:10px;color:var(--bob);margin-top:3px">${s.key_length} bits</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.7;background:var(--bg3);padding:10px 12px;border-radius:4px;border:1px solid var(--border)">
+          Any bit Eve guessed correctly becomes useless — a single wrong bit in the raw key flips ~128 bits of the SHA-256 output (avalanche effect). Her partial knowledge is reduced to zero.
+        </div>
+      </div>
+    </div>` : ''}
+
     <!-- end panels -->
   `;
+
+  // Populate privacy amplification key displays
+  setTimeout(()=>{
+    const rawEl = document.getElementById('raw-key-disp');
+    const paEl  = document.getElementById('pa-key-disp');
+    if(rawEl && data.raw_key){
+      rawEl.innerHTML = data.raw_key.slice(0,48).map(b=>`<span class="${b?'k1':'k0'}">${b}</span>`).join('')
+        + (data.raw_key.length>48?`<span style="opacity:.4"> +${(s.raw_key_length||0)-48}</span>`:'');
+    }
+    if(paEl && data.final_key){
+      paEl.innerHTML = data.final_key.slice(0,48).map(b=>`<span class="${b?'k1':'k0'}">${b}</span>`).join('')
+        + (data.final_key.length>48?`<span style="opacity:.4"> +${s.key_length-48}</span>`:'');
+    }
+  }, 0);
 
   // Render charts
   renderBasisChart(s, eve);
@@ -489,7 +570,11 @@ async function runSweep(){
     const res = await fetch('/api/sweep', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({n_trials: 200, n_bits: n})
+      body: JSON.stringify({
+      n_trials: 200, n_bits: n,
+      noise_rate: parseInt(document.getElementById('noise-range').value)/100,
+      intercept_fraction: parseInt(document.getElementById('frac-range').value)/100,
+    })
     });
     data = await res.json();
   } catch(e){
@@ -518,7 +603,7 @@ async function runSweep(){
           </div>
           <div class="sweep-stat">
             <div class="sweep-stat-label">THEORY EVE QBER</div>
-            <div class="sweep-stat-value" style="color:var(--text2)">25.00%</div>
+            <div class="sweep-stat-value" style="color:var(--text2)">${data.theoretical_eve_qber||25}%</div>
           </div>
           <div class="sweep-stat">
             <div class="sweep-stat-label">CLEAN AVG KEY</div>
