@@ -1,105 +1,66 @@
-# BB84 QKD Dashboard
+# BB84, provably secure: a Shor–Preskill security demo
 
-A full-stack quantum key distribution simulator with a dark terminal-style dashboard.
+An implementation of **Protocol 3** from Shor & Preskill, *"Simple Proof of Security of the BB84 Quantum Key
+Distribution Protocol"* (2000; `Proof of Security of the BB84.pdf`), extended to the case the paper says it can't cover: weak laser
+pulses, the **photon-number-splitting attack**, and the **decoy-state** fix.
 
-```
-bb84_dashboard/
-├── bb84_simulation.py   ← core physics & protocol (no dependencies)
-├── server.py            ← Flask API + static file server
-├── dashboard.html       ← single-file dashboard (served by Flask)
-└── README.md
-```
+Every classical step of the protocol is linear over GF(2), so the simulator computes **exactly how many bits of the
+final key Eve knows**. You can watch the security claim hold, and watch it fail when an assumption breaks.
 
----
 
-## Quick Start
 
-### 1. Install Flask (only dependency)
+## Run it
+
 ```bash
-pip install flask
+python3 -m venv .venv                       # one time
+.venv/bin/pip install -r requirements.txt   # one time
+.venv/bin/python server.py                  # then open http://localhost:5050
 ```
 
-### 2. Run the server
-```bash
-cd bb84_dashboard
-python server.py
-```
+| Also | Command |
+|---|---|
+| Same demo in the terminal | `.venv/bin/python demo.py` (or `demo.py 7 8`) |
+| Tests (16, ~2 s) | `.venv/bin/python -m unittest -v` |
 
-### 3. Open the dashboard
-```
-http://localhost:5000
-```
+Use the venv: on this Mac the system Python's numpy is an Intel build and won't import. Port 5050 because macOS AirPlay
+uses 5000.
 
----
+## The demo
 
-## Dashboard Features
+One page, eight steps (click the numbers or press ← / →). Each section on the page has a one-line explanation.
 
-| Panel | What it shows |
-|-------|--------------|
-| **Metric cards** | Qubits sent, matching bases, QBER, final key length |
-| **Channel status** | Live verdict badge, protocol flow diagram, QBER bar |
-| **Basis matching chart** | Doughnut — how many bases matched |
-| **Bit error chart** | Bar — correct vs error bits in sifted key |
-| **Transmission table** | First 30 qubits with Alice/Eve/Bob columns |
-| **Sifted key viewer** | Color-coded bit comparison, QBER sample highlighted |
-| **Final key** | Binary + hex display |
-| **Statistical sweep** | 200-trial QBER histogram (clean vs Eve) |
+| Step | Scenario | Result |
+|---|---|---|
+| **I. The protocol** | | |
+| 1 | Honest channel | 2,002-bit key, Alice = Bob, Eve knows 0 bits |
+| 2 | Eve measures everything | 25% errors, protocol stops |
+| **II. Why privacy amplification** | | |
+| 3 | Eve taps 10% of photons | Eve knows 249 key bits, then **0 after hashing** |
+| 4 | Same, hashing switched off | Eve knows 2,028 bits of the key |
+| 5 | Eve measures only in Z | Errors show up only in X checks (bit vs phase errors) |
+| **III. Real hardware** | | |
+| 6 | 40 km fibre, weak laser | Secure key; decoy click rates look honest |
+| 7 | Photon-splitting attack, naive analysis | 3% errors, 387-bit key, **Eve knows all 387 bits** |
+| 8 | Same attack, decoy analysis | Click rates don't fit, so the attack is detected and the protocol stops |
 
----
+## Code map: start with `qkd/protocol.py`
 
-## API Endpoints
+`run_protocol()` reads top to bottom like the paper, one short function per step:
 
-### `POST /api/run`
-Run a single BB84 simulation.
-```json
-{ "n_bits": 200, "eve_active": true }
-```
-Returns: summary stats, transmission table, sifted key, final key.
+| Step | Function | Module | Paper |
+|---|---|---|---|
+| 1. Send & measure | `simulate_channel` | `physics.py` | steps 1–4 |
+| 2. Sift | `sift` | `protocol.py` | steps 5–6 (random check bits) |
+| 3. Estimate errors | `estimate_errors` | `protocol.py`, `estimation.py` | step 7 + sampling bound |
+| 4. Secret fraction | `secret_fraction` | `protocol.py`, `estimation.py` | 1 − H(phase error); decoy bounds |
+| 5. Error correction | `reconcile` | `reconciliation.py` | steps 8–9, code C₁ (LDPC) |
+| 6. Privacy amplification | `toeplitz_hash_matrix` | `privacy.py` | step 10, code C₂ |
+| 7. Eve's exact knowledge | `measure_eve` | `gf2.py` | the security claim, checked |
 
-### `POST /api/sweep`
-Run N trials for statistical analysis.
-```json
-{ "n_trials": 200, "n_bits": 150 }
-```
-Returns: QBER histograms, mean/std, detection rate for clean and Eve scenarios.
+Other files: `scenarios.py` (the 8 demo steps), `theory.py` (reference formulas: 1 − 2H(δ), 11% threshold,
+rate vs distance), `server.py` (2 endpoints), `dashboard.html` (one page), `demo.py`, `tests/`.
 
----
-
-## Use as a library
-
-```python
-from bb84_simulation import run_bb84
-
-# No attacker
-r = run_bb84(n_bits=256, eve_active=False)
-print(r.summary())
-print("Key:", ''.join(map(str, r.final_key)))
-
-# With Eve
-r = run_bb84(n_bits=256, eve_active=True, seed=42)
-print(f"QBER: {r.qber:.1%}  |  Secure: {r.secure}")
-print(r.to_dict())
-```
-
----
-
-## Why BB84 works
-
-```
-  Alice            (Eve)              Bob
-    │ ─── qubits ──► │ ─── qubits ──► │
-    │                │                │
-    │ ◄──── public basis sifting ────► │
-    │                                 │
-    │ ◄────── QBER on sample ────────► │
-    │                                 │
-  QBER < 11%  →  extract final key
-  QBER ≥ 11%  →  abort (Eve detected)
-```
-
-Eve's intercept-resend attack guesses the right basis 50% of the time.
-Wrong guesses force Bob to measure a randomly re-sent qubit → 50% error
-in that half → **25% overall QBER** — far above the 11% abort threshold.
-
-This is enforced by the **no-cloning theorem**: Eve cannot copy a qubit
-without disturbing it.
+## Limitations
+* The simulation checks security only against the attacks implemented (intercept–resend, photon splitting); the
+  paper's proof covers all attacks.
+* Decoy bounds assume large samples (finite-size decoy analysis is the next step).

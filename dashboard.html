@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BB84 Security Demo</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0c0f; --bg2:#0f1217; --bg3:#151820; --surface:#1a1e28; --border:#252a38; --border2:#2e3545;
+  --text:#c8d0e0; --text2:#8a94a9; --text3:#566078;
+  --alice:#4fc3f7; --bob:#69f0ae; --eve:#ff5252; --warn:#ffca28; --phase:#ce93d8;
+  --mono:'IBM Plex Mono',monospace; --sans:'IBM Plex Sans',sans-serif;
+}
+* { box-sizing:border-box; margin:0; padding:0 }
+body { background:var(--bg); color:var(--text); font-family:var(--sans); font-size:14px; line-height:1.5 }
+.mono { font-family:var(--mono) }
+.muted { color:var(--text3) }
+.ok { color:var(--bob) } .bad { color:var(--eve) } .mid { color:var(--warn) }
+
+/* Header with the demo stepper */
+header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:16px; padding:10px 24px;
+         background:var(--bg2); border-bottom:1px solid var(--border); flex-wrap:wrap }
+.logo { font-family:var(--mono); font-weight:600; color:var(--alice); letter-spacing:.08em; font-size:13px }
+.steps { display:flex; gap:6px; align-items:center; flex-wrap:wrap }
+.act-label { font-family:var(--mono); font-size:10px; color:var(--text3); margin:0 2px 0 10px; letter-spacing:.08em }
+.step { width:30px; height:30px; border-radius:50%; border:1px solid var(--border2); background:var(--surface);
+        color:var(--text2); font-family:var(--mono); font-size:12px; cursor:pointer }
+.step:hover { color:var(--text) }
+.step.active { background:var(--alice); color:#001018; border-color:var(--alice); font-weight:600 }
+.nav { margin-left:auto; display:flex; gap:8px }
+.nav button { background:var(--surface); border:1px solid var(--border2); color:var(--text); border-radius:4px;
+              padding:6px 14px; font-family:var(--mono); font-size:12px; cursor:pointer }
+.nav button:disabled { opacity:.35; cursor:default }
+
+main { max-width:1280px; margin:0 auto; padding:20px 24px 60px; display:flex; flex-direction:column; gap:14px }
+main.loading { opacity:.5 }
+
+/* Story */
+.story { display:grid; grid-template-columns:1fr auto; gap:6px 20px; background:var(--bg3);
+         border:1px solid var(--border); border-radius:8px; padding:18px 20px }
+.kicker { font-family:var(--mono); font-size:11px; color:var(--text3); letter-spacing:.1em; text-transform:uppercase }
+.story h1 { font-size:22px; font-weight:500; margin:2px 0 6px }
+.story p { color:var(--text2); max-width:880px }
+.watch { grid-column:1/-1; margin-top:6px; border-left:2px solid var(--warn); padding:6px 12px; background:rgba(255,202,40,.05) }
+.watch b { color:var(--warn); font-family:var(--mono); font-size:11px; margin-right:6px }
+.abort { grid-column:1/-1; font-family:var(--mono); font-size:12px; color:var(--warn) }
+.verdict { align-self:start; padding:8px 14px; border-radius:5px; font-family:var(--mono); font-size:13px;
+           font-weight:600; letter-spacing:.06em; white-space:nowrap; border:1px solid }
+.v-secure { color:var(--bob); background:rgba(105,240,174,.1); border-color:rgba(105,240,174,.3) }
+.v-aborted { color:var(--warn); background:rgba(255,202,40,.08); border-color:rgba(255,202,40,.3) }
+.v-compromised { color:var(--eve); background:rgba(255,82,82,.1); border-color:rgba(255,82,82,.4) }
+
+/* Cards */
+.cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:12px 14px }
+.card-label { font-family:var(--mono); font-size:10px; color:var(--text3); letter-spacing:.08em; text-transform:uppercase }
+.card-value { font-family:var(--mono); font-size:24px; font-weight:300; margin:4px 0 2px }
+.card-sub { font-size:11px; color:var(--text3) }
+
+/* Panels: title + one explanatory line + body */
+.panel { background:var(--bg2); border:1px solid var(--border); border-radius:6px; min-width:0 }
+.panel-head { padding:10px 16px; border-bottom:1px solid var(--border); background:var(--bg3); border-radius:6px 6px 0 0 }
+.panel-title { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--text2); letter-spacing:.08em; text-transform:uppercase }
+.explain { font-size:12.5px; color:var(--text2); margin-top:3px }
+.panel-body { padding:14px 16px }
+.row { display:grid; grid-template-columns:1fr 1fr; gap:14px }
+
+/* Pipeline */
+.stage { display:grid; grid-template-columns:150px 1fr 190px; gap:12px; align-items:center; margin-bottom:9px }
+.stage-name { font-size:13px }
+.stage-name small { display:block; font-size:11px; color:var(--text3) }
+.track { height:22px; background:var(--bg3); border-radius:3px; position:relative; overflow:hidden }
+.bar { position:absolute; inset:0 auto 0 0; background:linear-gradient(90deg,rgba(79,195,247,.55),rgba(105,240,174,.55)); transition:width .5s }
+.evebar { position:absolute; inset:0 auto 0 0; background:repeating-linear-gradient(135deg,rgba(255,82,82,.85) 0 5px,rgba(255,82,82,.55) 5px 10px); transition:width .5s }
+.stage-val { font-family:var(--mono); font-size:12px; text-align:right }
+.stage-val span { display:block; font-size:11px }
+.legend { display:flex; gap:18px; font-size:11px; color:var(--text3); margin-top:8px }
+.sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px }
+
+/* Error estimation */
+.est { display:grid; grid-template-columns:110px 1fr 110px; gap:10px; align-items:center; margin-bottom:12px; font-size:13px }
+.est-track { height:14px; background:var(--bg3); border-radius:3px; position:relative }
+.est-fill { position:absolute; inset:0 auto 0 0; border-radius:3px }
+.est-mark { position:absolute; top:-4px; bottom:-4px; width:2px; background:var(--eve) }
+.est-mark::after { content:'11%'; position:absolute; top:-15px; left:-8px; font-family:var(--mono); font-size:9px; color:var(--eve) }
+.formula { display:block; font-family:var(--mono); font-size:12px; color:var(--alice); background:var(--bg3);
+           border:1px solid var(--border); border-radius:4px; padding:7px 10px; margin-top:8px; overflow-x:auto; white-space:nowrap }
+.note { font-size:12.5px; color:var(--text2); margin-top:8px }
+
+/* Privacy amplification budget */
+.budget { display:flex; height:26px; border-radius:4px; overflow:hidden; background:var(--bg3); margin-bottom:10px }
+.budget div { transition:width .5s }
+.kv { display:grid; grid-template-columns:auto 1fr auto; gap:5px 10px; font-size:12.5px; align-items:center }
+.kv .n { font-family:var(--mono); text-align:right }
+
+/* Keys */
+.keylabel { display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px; margin:8px 0 3px }
+.keybox { font-family:var(--mono); font-size:12px; word-break:break-all; background:var(--bg3); border:1px solid var(--border); border-radius:4px; padding:7px 10px }
+
+/* Tables */
+.table-wrap { overflow-x:auto }
+table { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px; white-space:nowrap }
+th { text-align:left; color:var(--text3); font-weight:500; padding:6px 10px; border-bottom:1px solid var(--border) }
+td { padding:5px 10px; border-bottom:1px solid var(--border) }
+tr.err td { color:var(--eve) }
+.tag { padding:0 6px; border-radius:3px; font-size:10px }
+.t-key { background:rgba(105,240,174,.12); color:var(--bob) }
+.t-check { background:rgba(255,202,40,.12); color:var(--warn) }
+.t-decoy { background:rgba(206,147,216,.15); color:var(--phase) }
+
+@media (max-width:900px) {
+  .cards { grid-template-columns:repeat(2,minmax(0,1fr)) }
+  .row { grid-template-columns:1fr }
+  .stage { grid-template-columns:1fr; gap:3px }
+  .stage-val { text-align:left }
+  main, header { padding-left:16px; padding-right:16px }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">BB84 // SECURITY DEMO</div>
+  <div class="steps" id="steps"></div>
+  <div class="nav"><button id="prev">← Prev</button><button id="next">Next →</button></div>
+</header>
+
+<main id="main">
+  <!-- What this step is about -->
+  <section class="story">
+    <div>
+      <div class="kicker" id="kicker"></div>
+      <h1 id="title"></h1>
+      <p id="story"></p>
+    </div>
+    <div id="verdict"></div>
+    <div class="abort" id="abort"></div>
+    <div class="watch"><b>WATCH</b><span id="look"></span></div>
+  </section>
+
+  <!-- Headline numbers -->
+  <section class="cards" id="cards"></section>
+
+  <!-- The pipeline -->
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Key pipeline</div>
+      <div class="explain">How many key bits survive each step (blue), and how many of them Eve knows (red). Eve's count is exact, computed from the simulation's ground truth.</div>
+    </div>
+    <div class="panel-body">
+      <div class="note" id="physical" style="margin:0 0 12px"></div>
+      <div id="funnel"></div>
+      <div class="legend"><span><i class="sw" style="background:#4fc3f7"></i>bits Alice &amp; Bob hold</span>
+        <span><i class="sw" style="background:#ff5252"></i>bits of information Eve has</span></div>
+    </div>
+  </section>
+
+  <div class="row">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Error check</div>
+        <div class="explain">Alice and Bob publicly compare random check bits. Above 11% errors, no secret key is possible.</div>
+      </div>
+      <div class="panel-body" id="errors"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Privacy amplification budget</div>
+        <div class="explain">The key is hashed down to remove everything Eve could know. Green is what's left.</div>
+      </div>
+      <div class="panel-body" id="budget"></div>
+    </section>
+  </div>
+
+  <div class="row">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Error correction</div>
+        <div class="explain">Alice sends parity checks (a syndrome) so Bob can fix his wrong bits. Those checks are public, so Eve sees them too.</div>
+      </div>
+      <div class="panel-body" id="ec"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Final keys</div>
+        <div class="explain">Alice's and Bob's keys should match exactly, and Eve's line should say she knows nothing.</div>
+      </div>
+      <div class="panel-body" id="keys"></div>
+    </section>
+  </div>
+
+  <section class="panel" id="decoy-panel">
+    <div class="panel-head">
+      <div class="panel-title">Laser pulses &amp; decoy check</div>
+      <div class="explain">Alice mixes bright (signal), dim (decoy) and empty (vacuum) pulses. On an honest fibre each click rate matches its prediction (ratio ≈ 1×). Eve can't tell the pulses apart, so her attack breaks the pattern.</div>
+    </div>
+    <div class="panel-body" id="decoy"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Transmission log</div>
+      <div class="explain">The first photons Bob detected. When the bases (+ or x) match, the bit is kept; a random half of those become check bits. Red rows are errors.</div>
+    </div>
+    <div class="panel-body table-wrap"><table id="log"></table></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => n == null ? '–' : Number(n).toLocaleString('en-US');
+const pct = (x, d = 1) => x == null ? '–' : (100 * x).toFixed(d) + '%';
+const sci = x => x === 0 ? '0' : x.toExponential(1);
+
+let scenarios = [], current = 0;
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+async function init() {
+  scenarios = await fetch('/api/scenarios').then(r => r.json());
+  let html = '', act = '';
+  scenarios.forEach((s, i) => {
+    if (s.act !== act) { act = s.act; html += `<span class="act-label">${act.split('.')[0]}.</span>`; }
+    html += `<button class="step" data-i="${i}" title="${s.title}">${i + 1}</button>`;
+  });
+  $('steps').innerHTML = html;
+  document.querySelectorAll('.step').forEach(b => b.onclick = () => show(+b.dataset.i));
+  $('prev').onclick = () => show(current - 1);
+  $('next').onclick = () => show(current + 1);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') show(current + 1);
+    if (e.key === 'ArrowLeft') show(current - 1);
+  });
+  show(0);
+}
+
+async function show(i) {
+  if (i < 0 || i >= scenarios.length) return;
+  current = i;
+  document.querySelectorAll('.step').forEach(b => b.classList.toggle('active', +b.dataset.i === i));
+  $('prev').disabled = i === 0;
+  $('next').disabled = i === scenarios.length - 1;
+  $('main').classList.add('loading');
+  const report = await fetch('/api/run/' + i).then(r => r.json());
+  render(scenarios[i], report);
+  $('main').classList.remove('loading');
+}
+
+// ── Rendering: one function per section ────────────────────────────────────
+function render(s, r) {
+  renderStory(s, r);
+  renderCards(r);
+  renderPipeline(r);
+  renderErrors(r);
+  renderBudget(r);
+  renderCorrection(r);
+  renderKeys(r);
+  renderDecoy(r);
+  renderLog(r);
+}
+
+const VERDICTS = { secure: 'SECURE KEY', aborted: 'ABORTED', compromised: 'KEY COMPROMISED' };
+
+function renderStory(s, r) {
+  $('kicker').textContent = `Step ${current + 1} of ${scenarios.length} · ${s.act}`;
+  $('title').textContent = s.title;
+  $('story').textContent = s.story;
+  $('look').textContent = s.look;
+  $('verdict').innerHTML = `<span class="verdict v-${r.verdict}">${VERDICTS[r.verdict]}</span>`;
+  $('abort').textContent = r.abort_reason ? '⚠ ' + r.abort_reason : '';
+}
+
+function renderCards(r) {
+  const e = r.estimation, k = r.keys, eve = r.funnel[3].eve;
+  const card = (label, value, sub, cls = '') =>
+    `<div class="card"><div class="card-label">${label}</div><div class="card-value ${cls}">${value}</div><div class="card-sub">${sub}</div></div>`;
+  $('cards').innerHTML =
+    card('Error rate (QBER)', pct(e.e_bit, 2), 'stop above 11%', e.e_bit > 0.11 ? 'bad' : e.e_bit > 0.06 ? 'mid' : 'ok') +
+    card('Final key', k ? fmt(k.length) + ' bits' : 'none', k ? `from ${fmt(r.config.n_pulses)} pulses` : 'protocol stopped', k ? 'ok' : 'mid') +
+    card('Alice = Bob?', k ? (k.match ? 'Yes' : 'No') : '–', k ? 'keys are identical' : 'no key to compare', k ? 'ok' : '') +
+    card('Eve knows', eve == null ? '–' : fmt(eve) + ' bits', eve == null ? 'no key produced' : eve === 0 ? 'nothing about the key' : `${pct(eve / k.length, 0)} of the key`,
+         eve == null ? '' : eve === 0 ? 'ok' : 'bad');
+}
+
+function renderPipeline(r) {
+  const hw = r.config.hardware, atk = r.config.attack;
+  const source = hw.source === 'wcp' ? `laser pulses over ${hw.distance_km} km of fibre` : 'single photons';
+  const eve = { none: 'no eavesdropper', intercept_resend: `Eve intercepts ${pct(atk.fraction, 0)} of photons${atk.basis === 'Z' ? ' (always in Z)' : ''}`,
+                pns: 'Eve runs a photon-number-splitting attack' }[atk.kind];
+  $('physical').innerHTML = `${fmt(r.config.n_pulses)} ${source} → <b>${fmt(r.detections)}</b> detected by Bob · <span class="${atk.kind === 'none' ? '' : 'bad'}">${eve}</span>`;
+
+  const why = { 'Sifted': 'bases matched', 'Key bits': 'check bits removed', 'Error-corrected': 'syndrome made public', 'Final key': 'hashed to secure length' };
+  const max = Math.max(r.funnel[0].bits, 1);
+  $('funnel').innerHTML = r.funnel.map(s => {
+    const eveText = s.eve == null ? '' : `<span class="${s.eve ? 'bad' : 'ok'}">Eve: ${fmt(s.eve)}${s.bits ? ` (${pct(s.eve / s.bits, 0)})` : ''}</span>`;
+    return `<div class="stage">
+      <div class="stage-name">${s.stage}<small>${why[s.stage]}</small></div>
+      <div class="track"><div class="bar" style="width:${100 * s.bits / max}%"></div>
+        <div class="evebar" style="width:${100 * Math.min(s.eve || 0, s.bits) / max}%"></div></div>
+      <div class="stage-val">${fmt(s.bits)} bits${eveText}</div></div>`;
+  }).join('');
+}
+
+function renderErrors(r) {
+  const e = r.estimation;
+  const row = (label, rate, n, color) => `<div class="est">
+      <div>${label}<div class="muted mono" style="font-size:10px">${fmt(n)} checks</div></div>
+      <div class="est-track"><div class="est-fill" style="width:${Math.min(100, rate / 0.3 * 100)}%;background:${color}"></div>
+        <div class="est-mark" style="left:${0.11 / 0.3 * 100}%"></div></div>
+      <div class="mono" style="text-align:right">${pct(rate, 2)}</div></div>`;
+  const skew = Math.abs(e.e_Z - e.e_X) > 0.03;
+  $('errors').innerHTML =
+    row('Z basis (+)', e.e_Z, e.n_check_Z, 'var(--alice)') +
+    row('X basis (x)', e.e_X, e.n_check_X, 'var(--phase)') +
+    `<div class="note">Z and X are checked separately: errors in one basis reveal Eve's information about bits sent in the other (the paper's "phase errors").
+     With a safety margin for the finite sample, phase errors are at most:</div>
+     <span class="formula">e_phase ≤ ${pct(e.e_phase_upper, 1)}</span>
+     ${skew ? `<div class="note mid">⚑ Z and X differ by ${pct(Math.abs(e.e_Z - e.e_X))}: Eve's disturbance depends on the basis.</div>` : ''}`;
+}
+
+function renderBudget(r) {
+  const p = r.privacy;
+  if (!p) { $('budget').innerHTML = `<div class="note">Not reached: the protocol stopped before this step.</div>`; return; }
+  if (!r.config.privacy_amplification) {
+    $('budget').innerHTML = `<div class="budget"><div style="width:100%;background:rgba(255,82,82,.55)"></div></div>
+      <div class="note bad">Switched off. The corrected key is used as-is, so everything Eve learned stays in it.</div>`;
+    return;
+  }
+  const parts = [
+    ['Final secret key', p.final, 'var(--bob)'],
+    [r.config.analysis === 'decoy' ? 'Phase errors + multi-photon pulses' : 'Phase errors (Eve\'s possible knowledge)', p.phase_cost, 'var(--phase)'],
+    ['Error-correction syndrome (public)', p.ec_leak, 'var(--warn)'],
+    ['Check tag + safety margin', p.tag_and_margin, 'var(--text3)'],
+  ];
+  $('budget').innerHTML =
+    `<div class="budget">${parts.map(([, v, c]) => `<div style="width:${100 * v / p.n_key}%;background:${c}"></div>`).join('')}</div>
+     <div class="kv">${parts.map(([l, v, c]) => `<i class="sw" style="background:${c}"></i><span>${l}</span><span class="n">${fmt(v)}</span>`).join('')}
+       <span></span><span class="muted">Key bits before hashing</span><span class="n muted">${fmt(p.n_key)}</span></div>
+     <span class="formula">final = n·(1 − H(e_phase)) − syndrome − margin  →  ideally n·(1 − 2H(δ))</span>`;
+}
+
+function renderCorrection(r) {
+  const ec = r.reconciliation;
+  if (!ec) { $('ec').innerHTML = `<div class="note">Not reached: the protocol stopped before this step.</div>`; return; }
+  $('ec').innerHTML = `<div class="kv">
+    <span></span><span>Bob's wrong bits before → after</span><span class="n">${fmt(ec.errors_before)} → <b class="${ec.errors_after ? 'bad' : 'ok'}">${fmt(ec.errors_after)}</b></span>
+    <span></span><span>Parity checks sent (public)</span><span class="n">${fmt(ec.syndrome_bits)}</span>
+    <span></span><span>Decoding rounds</span><span class="n">${ec.rounds}</span>
+    <span></span><span>Efficiency (1.0 = theoretical best)</span><span class="n">${ec.efficiency ? ec.efficiency.toFixed(2) : '–'}</span></div>
+    <div class="note">Decoder: an LDPC code with belief propagation, the paper's code C₁. If decoding fails, Alice sends extra parity checks and Bob tries again.</div>`;
+}
+
+function renderKeys(r) {
+  const k = r.keys, eve = r.funnel[3].eve;
+  if (!k) { $('keys').innerHTML = `<div class="note">No key was produced.</div>`; return; }
+  $('keys').innerHTML = `
+    <div class="keylabel" style="color:var(--alice)"><span>ALICE</span><span class="muted">first 256 bits, hex</span></div><div class="keybox" style="color:var(--alice)">${k.alice_hex}</div>
+    <div class="keylabel" style="color:var(--bob)"><span>BOB</span><span>${k.match ? '✓ identical' : '✗ different'}</span></div><div class="keybox" style="color:var(--bob)">${k.bob_hex}</div>
+    <div class="keylabel bad"><span>EVE</span></div>
+    <div class="keybox ${eve ? 'bad' : 'muted'}">${eve ? `knows ${fmt(eve)} of ${fmt(k.length)} bits` : `knows 0 of ${fmt(k.length)} bits: every possible key is equally likely to her`}</div>`;
+}
+
+function renderDecoy(r) {
+  $('decoy-panel').style.display = r.classes ? '' : 'none';
+  if (!r.classes) return;
+  const rows = r.classes.map(c => {
+    const ratio = c.gain / c.honest_gain, enoughData = c.sent * c.honest_gain >= 20;
+    const cls = !enoughData ? 'muted' : Math.abs(ratio - 1) > 0.15 ? 'bad' : 'ok';
+    return `<tr><td>${c.name}</td><td>${c.mu}</td><td>${fmt(c.sent)}</td><td>${fmt(c.clicks)}</td>
+      <td>${sci(c.gain)}</td><td>${sci(c.honest_gain)}</td><td class="${cls}">${enoughData ? ratio.toFixed(2) + '×' : 'too few'}</td></tr>`;
+  }).join('');
+  const d = r.decoy;
+  const verdict = r.config.analysis === 'naive'
+    ? `<div class="note bad">This run ignores the decoys and treats every pulse as a single photon, so it can't notice the attack.</div>`
+    : `<div class="note">Single-photon click rate: at least <b class="${d.Y1_L > 0.5 * d.Y1_honest ? 'ok' : 'bad'}">${sci(d.Y1_L)}</b> (honest fibre: ${sci(d.Y1_honest)}).
+       ${d.Y1_L > 0.5 * d.Y1_honest ? 'Consistent with an honest channel.' : 'It collapses to zero, which means attack detected.'}</div>`;
+  const pns = r.pns && r.config.attack.kind === 'pns'
+    ? `<div class="note bad">Eve's attack: she blocks ${pct(1 - r.pns.forward_single, 0)} of single-photon pulses and keeps one photon from every multi-photon pulse.
+       Signal click rate ${sci(r.pns.eve_signal_gain)} vs ${sci(r.pns.honest_signal_gain)} for an honest fibre, so it looks normal.</div>` : '';
+  $('decoy').innerHTML = `<div class="table-wrap"><table>
+      <tr><th>pulse type</th><th>mean photons</th><th>sent</th><th>clicks</th><th>click rate</th><th>honest rate</th><th>ratio</th></tr>${rows}</table></div>
+      ${verdict}${pns}`;
+}
+
+function renderLog(r) {
+  const showPhotons = r.config.hardware.source === 'wcp';
+  $('log').innerHTML = `<tr><th>#</th>${showPhotons ? '<th>photons</th>' : ''}<th>Alice (basis, bit)</th><th>Eve</th><th>Bob (basis, bit)</th><th>used as</th><th></th></tr>` +
+    r.table.map((t, i) => `<tr class="${t.error ? 'err' : ''}"><td>${i}</td>${showPhotons ? `<td>${t.photons}</td>` : ''}
+      <td>${t.alice}</td><td class="${t.eve_knows ? 'bad' : 'muted'}">${t.eve || '–'}${t.eve_knows ? ' ✓ knows bit' : ''}</td>
+      <td>${t.bob}</td><td>${t.role ? `<span class="tag t-${t.role}">${t.role}</span>` : '<span class="muted">discarded</span>'}</td>
+      <td>${t.error ? 'error' : ''}</td></tr>`).join('');
+}
+
+init();
+</script>
+</body>
+</html>
