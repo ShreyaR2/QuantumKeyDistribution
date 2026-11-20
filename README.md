@@ -1,4 +1,4 @@
-# BB84, provably secure: a Shor–Preskill security demo
+# BB84, provably secure: a Shor–Preskill security simulation
 
 An implementation of **Protocol 3** from Shor & Preskill, *"Simple Proof of Security of the BB84 Quantum Key
 Distribution Protocol"* (2000; `Proof of Security of the BB84.pdf`), extended to the case the paper says it can't cover: weak laser
